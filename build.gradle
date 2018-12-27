@@ -1,0 +1,48 @@
+group 'net.mongey.kafka.connect.slack'
+version '0.1-SNAPSHOT'
+
+buildscript {
+    ext.kotlin_version = '1.3.11'
+
+    repositories {
+        mavenCentral()
+        jcenter()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+apply plugin: 'kotlin'
+
+repositories {
+    mavenCentral()
+    maven {
+        url "http://packages.confluent.io/maven/"
+    }
+}
+
+dependencies {
+    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
+    testCompile 'junit:junit:4.12'
+    compile group: 'org.apache.kafka', name: 'connect-api', version: '2.1.0'
+    compile group: 'org.apache.kafka', name: 'connect-json', version: '2.1.0'
+    compile group: 'com.ullink.slack', name: 'simpleslackapi', version: '1.0.0'
+    compile group: 'org.apache.commons', name: 'commons-text', version: '1.6'
+    compile group: 'com.github.wnameless', name: 'json-flattener', version: '0.6.0'
+}
+
+compileKotlin {
+    kotlinOptions.jvmTarget = "1.6"
+}
+compileTestKotlin {
+    kotlinOptions.jvmTarget = "1.6"
+}
+
+jar {
+    // This line of code recursively collects and copies all of a project's files
+    // and adds them to the JAR itself. One can extend this task, to skip certain
+    // files or particular types at will
+    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+}

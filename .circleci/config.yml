@@ -1,0 +1,12 @@
+version: 2
+jobs:
+  build:
+    working_directory: ~/code
+    docker:
+      - image: circleci/openjdk:8
+    steps:
+      - checkout
+      - run: gradle jar
+      - run: ls -al build/libs
+      - store_artifacts: # store the uberjar as an artifact
+          path: build/libs

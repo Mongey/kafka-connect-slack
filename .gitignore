@@ -1,0 +1,7 @@
+/.gradle
+/build
+/out
+/terraform/*.tfstate
+/terraform/*.tfstate.backup
+/terraform/.terraform
+/terraform/secrets.tfvars
