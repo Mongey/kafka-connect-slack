@@ -19,6 +19,7 @@ import java.util.*
 class SlackSinkTask : SinkTask() {
     var config : Map<String, String> = HashMap(1)
     var session : SlackSession? = null
+
     override fun version(): String {
 //        return Version.getVersion()
         return "0.0.1"
@@ -54,18 +55,24 @@ class SlackSinkTask : SinkTask() {
 
         log.info("ConfigUser " + configUser + "configChannel" + configChannel)
         for (record in records) {
-            println(record.toString())
+            log.trace("Kafka Message: {}",record.toString())
+            val recordData = recordToMap(record)
             val t = config.get(SlackSinkConnectorConfig.MESSAGE_TEMPLATE_CONFIG)
-            val defaultTemplate = "No Template found:" + t
+            val defaultTemplate = "No Template found."
             val template: String = t ?: defaultTemplate
 
-            var str = format(template, recordToMap(record))
+            var str = format(template, recordData)
+
+            if (recordData.isEmpty()) {
+                log.error("Unable to convert record data into templatable message, skipping {}, {}", recordData, record)
+                continue
+            }
 
             if (configChannel != null) {
                 val channel = session?.findChannelByName(configChannel)
                 session?.sendMessage(channel, str)
             } else {
-                log.error("channel was nul $configChannel")
+                log.error("channel was null $configChannel")
             }
 
             if (configUser != null) {
@@ -89,7 +96,6 @@ class SlackSinkTask : SinkTask() {
         log.info("Stopping SlackSinkTask.")
     }
 
-
     companion object {
         private val log = LoggerFactory.getLogger(SlackSinkTask::class.java)
     }
@@ -101,17 +107,22 @@ fun recordToMap(record: SinkRecord): Map<String, String> {
     val JSON_CONVERTER = JsonConverter()
     JSON_CONVERTER.configure(Collections.singletonMap("schemas.enable", "false"), false);
 
+    val normalizedMap = HashMap<String,String>()
     val rawJsonPayload = JSON_CONVERTER.fromConnectData(record.topic(), schema, value)
-    val jsonStr =  String(rawJsonPayload, StandardCharsets.UTF_8)
 
+    if (rawJsonPayload == null) {
+      return normalizedMap
+    }
+
+    val jsonStr =  String(rawJsonPayload, StandardCharsets.UTF_8)
     val flattenJson = JsonFlattener.flattenAsMap(jsonStr)
 
-    val normalizedMap = HashMap<String,String>()
     for (p in flattenJson) {
         normalizedMap.set(p.key,p.value.toString())
     }
     return normalizedMap
 }
+
 fun format(template: String, data: Map<String, String>): String {
     return StrSubstitutor(data).replace(template)
 }
