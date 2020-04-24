@@ -1,9 +1,11 @@
 group 'net.mongey.kafka.connect.slack'
 version '0.1-SNAPSHOT'
 
-buildScan {
-  termsOfServiceUrl = 'https://gradle.com/terms-of-service';
-  termsOfServiceAgree = 'yes'
+if (hasProperty('buildScan')) {
+    buildScan {
+        termsOfServiceUrl = 'https://gradle.com/terms-of-service'
+        termsOfServiceAgree = 'yes'
+    }
 }
 
 buildscript {
