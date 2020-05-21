@@ -53,4 +53,3 @@ class SlackSinkConnector() : SinkConnector() {
         return SlackSinkConnectorConfig.CONFIG
     }
 }
-
