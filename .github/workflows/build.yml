@@ -10,7 +10,15 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 1.8
+
       - name: Build with Gradle
         run: ./gradlew build --scan
+
       - name: Build the jar
         run: ./gradlew jar
+
+      - name: Publish to GitHub Packages
+        run: gradle publish
+        env:
+          USERNAME: ${{ github.actor }}
+          PASSWORD: ${{ secrets.GITHUB_TOKEN }}
