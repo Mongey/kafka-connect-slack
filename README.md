@@ -1,8 +1,6 @@
 # kafka-connect-slack
 A [kafka-connect](https://kafka.apache.org/documentation/#connect) sink connector, for formatting, and sending messages to Slack
 
-[![CircleCI](https://circleci.com/gh/Mongey/kafka-connect-slack.svg?style=svg&circle-token=fec0eab73b18b427a484bd2ae4736deec30c7173)](https://circleci.com/gh/Mongey/kafka-connect-slack)
-
 ![](https://mongey.net/post/kafka-connect-slack/posting.gif)
 
 ## :electric_plug: Installation
