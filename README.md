@@ -4,7 +4,7 @@ A [kafka-connect](https://kafka.apache.org/documentation/#connect) sink connecto
 ![](https://mongey.net/post/kafka-connect-slack/posting.gif)
 
 ## :electric_plug: Installation
-Download the [latest jar](https://circleci.com/gh/Mongey/kafka-connect-slack/) and place it in your [kafka-connect plugins](https://docs.confluent.io/current/connect/userguide.html#installing-plugins) folder.
+Download the [latest jar](https://github.com/Mongey/kafka-connect-slack/releases/latest) and place it in your [kafka-connect plugins](https://docs.confluent.io/current/connect/userguide.html#installing-plugins) folder.
 
 ## :hammer_and_wrench: Configuration
 
