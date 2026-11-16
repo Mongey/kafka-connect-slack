@@ -1,77 +1,93 @@
-buildscript {
-    ext.kotlin_version = '1.3.70'
+plugins {
+    id 'org.jetbrains.kotlin.jvm' version '2.4.21'
+    id 'maven-publish'
+}
 
-    repositories {
-        mavenCentral()
-        jcenter()
+group = 'net.mongey.kafka.connect.slack'
+version = System.getenv('RELEASE_VERSION') ?: '0.1-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    kafkaRuntime
+}
+
+dependencies {
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib'
+    compileOnly 'org.apache.kafka:connect-api:4.4.0'
+    compileOnly 'org.apache.kafka:connect-json:4.4.0'
+    compileOnly 'org.slf4j:slf4j-api:2.0.20'
+    implementation('com.ullink.slack:simpleslackapi:1.4.0') {
+        exclude group: 'org.slf4j'
+        exclude group: 'javax.websocket'
     }
+    implementation 'org.apache.commons:commons-text:1.15.0'
+    implementation 'com.github.wnameless.json:json-flattener:0.18.6'
+    // The Slack client uses javax.websocket; Tyrus 2.x uses jakarta.websocket.
+    implementation 'org.glassfish.tyrus.bundles:tyrus-standalone-client:1.22'
+    constraints {
+        implementation 'com.google.code.gson:gson:2.15.0'
+        implementation 'org.apache.httpcomponents:httpclient:4.5.14'
+        implementation 'org.apache.httpcomponents:httpmime:4.5.14'
+        implementation 'commons-codec:commons-codec:1.23.0'
+        implementation 'commons-logging:commons-logging:1.4.0'
+        implementation 'org.threeten:threetenbp:1.7.5'
+    }
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.apache.kafka:connect-api:4.4.0'
+    testImplementation 'org.apache.kafka:connect-json:4.4.0'
+    kafkaRuntime 'org.apache.kafka:connect-api:4.4.0'
+    kafkaRuntime 'org.apache.kafka:connect-json:4.4.0'
+}
 
-    dependencies {
-        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+kotlin {
+    jvmToolchain(21)
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.named('test') {
+    dependsOn tasks.named('jar')
+    inputs.files(configurations.kafkaRuntime)
+    inputs.file(tasks.named('jar').flatMap { it.archiveFile })
+    doFirst {
+        systemProperty 'plugin.jar', tasks.named('jar').get().archiveFile.get().asFile.absolutePath
+        systemProperty 'kafka.classpath', configurations.kafkaRuntime.asPath
+    }
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat = 'full'
     }
 }
 
-apply plugin: 'kotlin'
-apply plugin: 'maven-publish'
-group 'net.mongey.kafka.connect.slack'
-version System.getenv("RELEASE_VERSION") ?: '0.1-SNAPSHOT'
-
-if (hasProperty('buildScan')) {
-    buildScan {
-        termsOfServiceUrl = 'https://gradle.com/terms-of-service'
-        termsOfServiceAgree = 'yes'
-    }
+tasks.named('jar') {
+    manifest { attributes 'Implementation-Version': project.version }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    exclude 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA', 'module-info.class', 'META-INF/versions/**/module-info.class'
 }
 
 publishing {
     repositories {
         maven {
-            name = "GitHubPackages"
-            url = uri("https://maven.pkg.github.com/Mongey/kafka-connect-slack")
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/Mongey/kafka-connect-slack')
             credentials {
-                username = project.findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
-                password = project.findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
+                username = project.findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+                password = project.findProperty('gpr.key') ?: System.getenv('GITHUB_TOKEN')
             }
         }
     }
     publications {
         gpr(MavenPublication) {
-            from(components.java)
+            from components.java
         }
     }
 }
-
-repositories {
-    mavenCentral()
-    maven {
-        url "http://packages.confluent.io/maven/"
-    }
-}
-
-dependencies {
-    compile "org.jetbrains.kotlin:kotlin-stdlib-jdk8"
-    testCompile 'junit:junit:4.12'
-    compile group: 'org.apache.kafka', name: 'connect-api', version: '2.1.0'
-    compile group: 'org.apache.kafka', name: 'connect-json', version: '2.1.0'
-    compile group: 'com.ullink.slack', name: 'simpleslackapi', version: '1.0.0'
-    compile group: 'org.apache.commons', name: 'commons-text', version: '1.6'
-    compile group: 'com.github.wnameless', name: 'json-flattener', version: '0.6.0'
-    compile group: 'javax.websocket', name: 'javax.websocket-client-api', version: '1.1'
-    compile group: 'org.glassfish.tyrus.bundles', name: 'tyrus-standalone-client', version:'1.12'
-    compile group: 'org.glassfish.tyrus', name: 'tyrus-container-grizzly-client', version:'1.12'
-}
-
-compileKotlin {
-    kotlinOptions.jvmTarget = "1.6"
-}
-compileTestKotlin {
-    kotlinOptions.jvmTarget = "1.6"
-}
-
-jar {
-    // This line of code recursively collects and copies all of a project's files
-    // and adds them to the JAR itself. One can extend this task, to skip certain
-    // files or particular types at will
-    from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
-}
-

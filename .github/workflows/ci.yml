@@ -16,14 +16,18 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '19'
+          java-version: '21'
           cache: 'gradle'
 
       - name: Build
-        run: ./gradlew build
+        run: ./gradlew clean build --no-daemon
 
-      - name: Build JAR
-        run: ./gradlew jar
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: build/reports/tests/test/
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4

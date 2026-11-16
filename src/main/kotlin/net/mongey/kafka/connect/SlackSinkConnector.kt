@@ -1,56 +1,48 @@
 package net.mongey.kafka.connect
 
 import org.apache.kafka.common.config.ConfigDef
+import org.apache.kafka.common.config.Config
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.connect.connector.Task
 import org.apache.kafka.connect.errors.ConnectException
 import org.apache.kafka.connect.sink.SinkConnector
-import java.util.ArrayList
-import java.util.HashMap
 
-class SlackSinkConnector() : SinkConnector() {
+class SlackSinkConnector : SinkConnector() {
     private var configProperties: Map<String, String>? = null
 
-    override fun version(): String {
-        return "0.0.1"
-    }
+    override fun version(): String = javaClass.`package`.implementationVersion ?: "development"
 
-    @Throws(ConnectException::class)
     override fun start(props: Map<String, String>) {
         try {
-            configProperties = props
-            // validation
             SlackSinkConnectorConfig(props)
+            configProperties = props.toMap()
         } catch (e: ConfigException) {
-            throw ConnectException(
-                    "Couldn't start due to configuration error",
-                    e
-            )
+            throw ConnectException("Couldn't start due to configuration error", e)
         }
-
     }
 
-    override fun taskClass(): Class<out Task> {
-        return SlackSinkTask::class.java
-    }
+    override fun taskClass(): Class<out Task> = SlackSinkTask::class.java
 
     override fun taskConfigs(maxTasks: Int): List<Map<String, String>> {
-        val taskConfigs = ArrayList<Map<String, String>>()
-        val taskProps = HashMap<String, String>()
-        taskProps.putAll(configProperties!!)
-        for (i in 0 until maxTasks) {
-            taskConfigs.add(taskProps)
+        val props = configProperties ?: throw ConnectException("Connector has not been started")
+        return List(maxTasks) { HashMap(props) }
+    }
+
+    override fun stop() = Unit
+
+    override fun config(): ConfigDef = SlackSinkConnectorConfig.CONFIG
+
+    override fun validate(connectorConfigs: Map<String, String>): Config {
+        val result = super.validate(connectorConfigs)
+        if (result.configValues().all { it.errorMessages().isEmpty() }) {
+            try {
+                SlackSinkConnectorConfig(connectorConfigs)
+            } catch (e: ConfigException) {
+                result.configValues()
+                    .filter { it.name() in setOf(SlackSinkConnectorConfig.SLACK_CHANNEL_CONFIG, SlackSinkConnectorConfig.SLACK_USER_CONFIG) }
+                    .forEach { it.addErrorMessage(e.message) }
+            }
         }
-        return taskConfigs
-    }
-
-    @Throws(ConnectException::class)
-    override fun stop() {
-
-    }
-
-    override fun config(): ConfigDef {
-        return SlackSinkConnectorConfig.CONFIG
+        return result
     }
 }
-
