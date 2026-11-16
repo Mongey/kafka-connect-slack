@@ -1,5 +1,10 @@
 # Harness and maintenance review
 
+This records the maintenance baseline in commit `65ae445`. The subsequent
+[Web API migration](slack-web-api-migration.md) replaces the legacy transport and
+its client mocks with HTTP contract tests. Version and test counts below describe
+that earlier baseline.
+
 Reviewed on 2026-11-16. The initial suite had one string-formatting test. It did not
 start a connector or task, convert a Kafka record, observe Slack sends, or load the
 distributed JAR.

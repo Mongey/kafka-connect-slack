@@ -27,7 +27,9 @@ class SlackSinkConnectorConfig(props: Map<String, String>) : AbstractConfig(CONF
         val CONFIG: ConfigDef = ConfigDef()
             .define(SLACK_TOKEN_CONFIG, ConfigDef.Type.PASSWORD, ConfigDef.NO_DEFAULT_VALUE,
                 { name, value ->
-                    if ((value as Password?)?.value().isNullOrBlank()) throw ConfigException("$name must not be blank")
+                    val token = (value as Password?)?.value()
+                    if (token.isNullOrBlank()) throw ConfigException("$name must not be blank")
+                    if (token.any { it !in '!'..'~' }) throw ConfigException("$name must contain only visible ASCII characters")
                 }, ConfigDef.Importance.HIGH, "Slack authentication token")
             .define(SLACK_USER_CONFIG, ConfigDef.Type.STRING, null, ConfigDef.Importance.HIGH, "Send to this Slack username")
             .define(SLACK_CHANNEL_CONFIG, ConfigDef.Type.STRING, null, ConfigDef.Importance.HIGH, "Send to this Slack channel")

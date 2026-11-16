@@ -9,10 +9,9 @@ Download the [latest jar](https://github.com/Mongey/kafka-connect-slack/releases
 This source targets Java 17 or newer and Kafka Connect 4.4. Build it with JDK 21.
 The plugin JAR bundles its libraries. Kafka Connect supplies Kafka APIs, JSON conversion, and logging.
 
-The Slack transport still uses legacy RTM and requires a compatible classic-app token.
-Slack lists classic-app retirement for November 2026 in its
-[retirement notice](https://api.slack.com/changelog/2024-09-legacy-custom-bots-classic-apps-deprecation).
-New Slack apps need a Web API transport migration before this connector can support them.
+Messages use Slack's Web API with a modern Slack app token. No RTM connection,
+WebSocket service, or classic app is required. See the
+[migration guide](docs/slack-web-api-migration.md) for app permissions and token replacement.
 
 ## Build and verify
 
@@ -21,8 +20,8 @@ New Slack apps need a Web API transport migration before this connector can supp
 ```
 
 The tests need no broker, Slack credentials, or Docker. They feed real Kafka
-`SinkRecord` values through conversion and templating into a recording Slack client.
-They check routing, configuration, lifecycle, and failure handling. A separate check
+`SinkRecord` values through conversion and templating into real HTTP requests to a
+local fake Slack server. They check routing, configuration, lifecycle, and failure handling. A separate check
 loads the actual plugin JAR with only Kafka worker dependencies to verify packaging
 and service discovery. No test sends messages to Slack.
 
@@ -47,13 +46,15 @@ resource "kafka-connect_connector" "slack_sink" {
 }
 ```
 
-* `slack.token` is the slack token for the connector to use.
-* `slack.channel` defines what channel to send the message into. (Optional)
-* `slack.username` defines the user to send the message to. (Optional)
+* `slack.token` is the installed Slack app's bot token.
+* `slack.channel` accepts a channel name or conversation ID. (Optional)
+* `slack.username` accepts a Slack username or user ID for direct messages. (Optional)
 * `message.template` defines the template to use for the message.
 
 The token and a nonblank template are required. Configure at least one channel or
 username. When both are configured, each record goes to both destinations.
+IDs avoid directory lookups and need fewer permissions. Names resolve on the first
+message and remain cached until the task restarts.
 
 ### :memo: `message.template`
 Interpolate fields from the message using `${field_name}`.

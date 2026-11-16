@@ -1,10 +1,5 @@
 package net.mongey.kafka.connect
 
-import com.ullink.slack.simpleslackapi.SlackChannel
-import com.ullink.slack.simpleslackapi.SlackMessageHandle
-import com.ullink.slack.simpleslackapi.SlackSession
-import com.ullink.slack.simpleslackapi.SlackUser
-import com.ullink.slack.simpleslackapi.replies.SlackMessageReply
 import org.apache.kafka.common.config.ConfigDef
 import org.apache.kafka.common.config.ConfigException
 import org.apache.kafka.connect.data.Schema
@@ -14,8 +9,6 @@ import org.apache.kafka.connect.errors.ConnectException
 import org.apache.kafka.connect.sink.SinkRecord
 import org.junit.Assert.*
 import org.junit.Test
-import java.io.IOException
-import java.lang.reflect.Proxy
 
 class RecordFormattingTest {
     @Test
@@ -72,154 +65,25 @@ class RecordFormattingTest {
     }
 }
 
-class SlackTaskTest {
-    @Test
-    fun `task has public no argument constructor for Kafka Connect`() {
-        assertNotNull(SlackSinkTask::class.java.getConstructor().newInstance())
-    }
-
-    @Test
-    fun `channel destination receives a formatted message for every nonempty record`() {
-        val fake = FakeSlack()
-        val task = SlackSinkTask { token ->
-            assertEquals("synthetic-test-token", token)
-            fake.session
-        }
-        task.start(properties())
-        task.put(listOf(record(mapOf("name" to "Vegeta")), record(null), record(emptyMap<String, Any>()), record(mapOf("name" to "Goku"))))
-        assertEquals(listOf("connect", "findChannel:orders", "channel:Hello Vegeta", "findChannel:orders", "channel:Hello Goku"), fake.calls)
-    }
-
-    @Test
-    fun `username destination sends direct messages`() {
-        val fake = FakeSlack()
-        val task = SlackSinkTask { fake.session }
-        task.start(properties(channel = null, username = "goku"))
-        task.put(listOf(record(mapOf("name" to "Vegeta"))))
-        assertEquals(listOf("connect", "findUser:goku", "user:Hello Vegeta"), fake.calls)
-    }
-
-    @Test
-    fun `both destinations receive the message`() {
-        val fake = FakeSlack()
-        val task = SlackSinkTask { fake.session }
-        task.start(properties(username = "goku"))
-        task.put(listOf(record(mapOf("name" to "Vegeta"))))
-        assertEquals(listOf("connect", "findChannel:orders", "channel:Hello Vegeta", "findUser:goku", "user:Hello Vegeta"), fake.calls)
-    }
-
-    @Test
-    fun `blank optional destination does not send when other destination is configured`() {
-        val fake = FakeSlack()
-        val task = SlackSinkTask { fake.session }
-        task.start(properties(channel = " ", username = "goku"))
-        task.put(listOf(record(mapOf("name" to "Vegeta"))))
-        assertEquals(listOf("connect", "findUser:goku", "user:Hello Vegeta"), fake.calls)
-    }
-
-    @Test
-    fun `empty batch is harmless before and after startup`() {
-        val fake = FakeSlack()
-        val task = SlackSinkTask { fake.session }
-        task.put(emptyList())
-        task.start(properties())
-        task.put(emptyList())
-        assertEquals(listOf("connect"), fake.calls)
-    }
-
-    @Test
-    fun `unstarted task rejects records instead of silently dropping them`() {
-        assertThrows(ConnectException::class.java) {
-            SlackSinkTask { error("factory must not run") }.put(listOf(record(mapOf("name" to "Vegeta"))))
-        }
-    }
-
-    @Test
-    fun `startup failure propagates and releases the failed session`() {
-        val fake = FakeSlack().apply { connectFailure = IOException("connection failed") }
-        val task = SlackSinkTask { fake.session }
-        val failure = assertThrows(ConnectException::class.java) { task.start(properties()) }
-        assertSame(fake.connectFailure, failure.cause)
-        task.stop()
-        assertEquals(listOf("connect", "disconnect"), fake.calls)
-    }
-
-    @Test
-    fun `startup cleanup failure preserves the connection failure`() {
-        val fake = FakeSlack().apply {
-            connectFailure = IOException("connection failed")
-            disconnectFailure = IOException("cleanup failed")
-        }
-        val failure = assertThrows(ConnectException::class.java) { SlackSinkTask { fake.session }.start(properties()) }
-        assertSame(fake.connectFailure, failure.cause)
-        assertArrayEquals(arrayOf(fake.disconnectFailure), failure.cause!!.suppressed)
-    }
-
-    @Test
-    fun `stop disconnects once and future sends fail`() {
-        val fake = FakeSlack()
-        val task = SlackSinkTask { fake.session }
-        task.start(properties())
-        task.stop()
-        task.stop()
-        assertEquals(listOf("connect", "disconnect"), fake.calls)
-        assertThrows(ConnectException::class.java) { task.put(listOf(record(mapOf("name" to "Vegeta")))) }
-    }
-
-    @Test
-    fun `disconnect failure propagates`() {
-        val fake = FakeSlack().apply { disconnectFailure = IOException("disconnect failed") }
-        val task = SlackSinkTask { fake.session }
-        task.start(properties())
-        val failure = assertThrows(ConnectException::class.java) { task.stop() }
-        assertSame(fake.disconnectFailure, failure.cause)
-    }
-
-    @Test
-    fun `transport send failure propagates and does not send the next record`() {
-        val fake = FakeSlack().apply { sendFailure = IllegalStateException("send failed") }
-        val task = SlackSinkTask { fake.session }
-        task.start(properties())
-        val failure = assertThrows(IllegalStateException::class.java) {
-            task.put(listOf(record(mapOf("name" to "Vegeta")), record(mapOf("name" to "Goku"))))
-        }
-        assertSame(fake.sendFailure, failure)
-        assertEquals(listOf("connect", "findChannel:orders", "channel:Hello Vegeta"), fake.calls)
-    }
-
-    @Test
-    fun `Slack API rejection fails both channel and direct message sends`() {
-        for (props in listOf(properties(), properties(channel = null, username = "goku"))) {
-            val fake = FakeSlack().apply { apiError = "not_authed" }
-            val task = SlackSinkTask { fake.session }
-            task.start(props)
-            val failure = assertThrows(ConnectException::class.java) { task.put(listOf(record(mapOf("name" to "Vegeta")))) }
-            assertTrue(failure.message!!.contains("not_authed"))
-        }
-    }
-
-    @Test
-    fun `missing API reply cannot be treated as successful delivery`() {
-        val fake = FakeSlack().apply { missingReply = true }
-        val task = SlackSinkTask { fake.session }
-        task.start(properties())
-        assertThrows(ConnectException::class.java) { task.put(listOf(record(mapOf("name" to "Vegeta")))) }
-    }
-
-    @Test
-    fun `unresolved destinations fail without calling send`() {
-        for (props in listOf(properties(), properties(channel = null, username = "goku"))) {
-            val fake = FakeSlack().apply { missingDestination = true }
-            val task = SlackSinkTask { fake.session }
-            task.start(props)
-            assertThrows(ConnectException::class.java) { task.put(listOf(record(mapOf("name" to "Vegeta")))) }
-            assertEquals(2, fake.calls.size)
-            assertTrue(fake.calls.last().startsWith("find"))
-        }
-    }
-}
-
 class SlackConfigTest {
+    @Test
+    fun `invalid token characters fail safely before HTTP header construction`() {
+        for (separator in listOf("\n", "\r", "\t", " ", "é")) {
+            val token = "synthetic-private-token${separator}suffix"
+            val props = properties() + ("slack.token" to token)
+            val errors = SlackSinkConnector().validate(props).configValues()
+                .single { it.name() == "slack.token" }.errorMessages()
+            assertTrue(errors.isNotEmpty())
+            assertTrue(errors.none { it.contains("synthetic-private-token") })
+            val failure = assertThrows(ConfigException::class.java) { SlackSinkTask().start(props) }
+            assertFalse(failure.toString().contains("synthetic-private-token"))
+            assertNull(failure.cause)
+        }
+        assertEquals("synthetic-private-token", SlackSinkConnectorConfig(
+            properties() + ("slack.token" to "synthetic-private-token\n")
+        ).token)
+    }
+
     @Test
     fun `Kafka validation reports required fields and destination rules before startup`() {
         val connector = SlackSinkConnector()
@@ -258,7 +122,7 @@ class SlackConfigTest {
 
     @Test
     fun `invalid task config fails before any Slack connection`() {
-        val task = SlackSinkTask { error("invalid config reached session factory") }
+        val task = SlackSinkTask()
         assertThrows(ConfigException::class.java) { task.start(properties() - "slack.token") }
     }
 
@@ -295,37 +159,3 @@ private fun properties(channel: String? = "orders", username: String? = null): M
     channel?.let { put("slack.channel", it) }
     username?.let { put("slack.username", it) }
 }
-
-private class FakeSlack {
-    val calls = mutableListOf<String>()
-    var connectFailure: IOException? = null
-    var disconnectFailure: IOException? = null
-    var sendFailure: RuntimeException? = null
-    var apiError: String? = null
-    var missingReply = false
-    var missingDestination = false
-    private val channel = SlackChannel()
-    private val user = proxy<SlackUser> { name, _ -> error("Unexpected user method $name") }
-    val session = proxy<SlackSession> { name, args ->
-        when (name) {
-            "connect" -> { calls += "connect"; connectFailure?.let { throw it }; null }
-            "disconnect" -> { calls += "disconnect"; disconnectFailure?.let { throw it }; null }
-            "findChannelByName" -> { calls += "findChannel:${args[0]}"; if (missingDestination) null else channel }
-            "findUserByUserName" -> { calls += "findUser:${args[0]}"; if (missingDestination) null else user }
-            "sendMessage", "sendMessageToUser" -> {
-                assertSame(if (name == "sendMessage") channel else user, args[0])
-                calls += "${if (name == "sendMessage") "channel" else "user"}:${args[1]}"
-                sendFailure?.let { throw it }
-                SlackMessageHandle<SlackMessageReply>(1).also { handle ->
-                    if (!missingReply) handle.reply = SlackMessageReply(apiError == null, apiError, 1, "1.0")
-                }
-            }
-            else -> error("Unexpected Slack method $name")
-        }
-    }
-}
-
-private inline fun <reified T> proxy(crossinline call: (String, Array<out Any?>) -> Any?): T =
-    Proxy.newProxyInstance(T::class.java.classLoader, arrayOf(T::class.java)) { _, method, args ->
-        call(method.name, args ?: emptyArray())
-    } as T

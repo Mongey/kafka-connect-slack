@@ -1,44 +1,37 @@
 package net.mongey.kafka.connect
 
 import com.github.wnameless.json.flattener.JsonFlattener
-import com.ullink.slack.simpleslackapi.SlackMessageHandle
-import com.ullink.slack.simpleslackapi.SlackSession
-import com.ullink.slack.simpleslackapi.impl.SlackSessionFactory
-import com.ullink.slack.simpleslackapi.replies.SlackMessageReply
 import org.apache.commons.text.StringSubstitutor
 import org.apache.kafka.clients.consumer.OffsetAndMetadata
 import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.connect.errors.ConnectException
+import org.apache.kafka.connect.errors.RetriableException
 import org.apache.kafka.connect.json.JsonConverter
 import org.apache.kafka.connect.sink.SinkRecord
 import org.apache.kafka.connect.sink.SinkTask
 import org.slf4j.LoggerFactory
-import java.io.IOException
+import java.net.URI
 import java.nio.charset.StandardCharsets
 
-class SlackSinkTask @JvmOverloads constructor(
-    private val sessionFactory: (String) -> SlackSession = SlackSessionFactory::createWebSocketSlackSession
-) : SinkTask() {
+class SlackSinkTask internal constructor(private val apiBase: URI) : SinkTask() {
+    constructor() : this(URI.create("https://slack.com/api/"))
+
     private lateinit var config: SlackSinkConnectorConfig
-    private var session: SlackSession? = null
+    private var client: SlackWebApi? = null
+    private var channelId: String? = null
+    private var userId: String? = null
+    private var directMessageId: String? = null
+    private val accepted = mutableSetOf<Delivery>()
 
     override fun version(): String = javaClass.`package`.implementationVersion ?: "development"
 
     override fun start(props: Map<String, String>) {
-        log.info("Starting SlackSinkTask.")
         config = SlackSinkConnectorConfig(props)
-        val client = sessionFactory(config.token)
-        try {
-            client.connect()
-        } catch (e: IOException) {
-            try {
-                client.disconnect()
-            } catch (cleanup: IOException) {
-                e.addSuppressed(cleanup)
-            }
-            throw ConnectException("Unable to connect to Slack", e)
-        }
-        session = client
+        client = SlackWebApi(config.token, apiBase)
+        channelId = null
+        userId = null
+        directMessageId = null
+        accepted.clear()
     }
 
     override fun open(partitions: Collection<TopicPartition>) {
@@ -47,27 +40,31 @@ class SlackSinkTask @JvmOverloads constructor(
 
     override fun put(records: Collection<SinkRecord>) {
         if (records.isEmpty()) return
-        val client = session ?: throw ConnectException("Slack task has not been started")
-        for (record in records) {
-            val data = recordToMap(record)
-            if (data.isEmpty()) continue
-            val message = format(config.template, data)
-            config.channel?.let { name ->
-                val channel = client.findChannelByName(name)
-                    ?: throw ConnectException("Slack channel not found: $name")
-                checkReply(client.sendMessage(channel, message))
+        val api = client ?: throw ConnectException("Slack task has not been started")
+        try {
+            for (record in records) {
+                val data = recordToMap(record)
+                if (data.isEmpty()) continue
+                val message = format(config.template, data)
+                val channel = config.channel?.let { destination ->
+                    channelId ?: api.channelId(destination).also { channelId = it }
+                }
+                val directMessage = config.username?.let { destination ->
+                    val user = userId ?: api.userId(destination).also { userId = it }
+                    directMessageId ?: api.openDirectMessage(user).also { directMessageId = it }
+                }
+                for (id in listOfNotNull(channel, directMessage)) {
+                    val delivery = Delivery(record.originalTopic(), record.originalKafkaPartition(), record.originalKafkaOffset(), id)
+                    if (delivery in accepted) continue
+                    api.postMessage(id, message)
+                    accepted += delivery
+                }
             }
-            config.username?.let { name ->
-                val user = client.findUserByUserName(name)
-                    ?: throw ConnectException("Slack user not found: $name")
-                checkReply(client.sendMessageToUser(user, message, null))
-            }
+            accepted.clear()
+        } catch (e: RetriableException) {
+            context?.timeout(if (e is SlackRateLimitException) e.delayMs else 1000)
+            throw e
         }
-    }
-
-    private fun checkReply(handle: SlackMessageHandle<SlackMessageReply>) {
-        val reply = handle.reply ?: throw ConnectException("Slack returned no message reply")
-        if (!reply.isOk) throw ConnectException("Slack rejected message: ${reply.errorMessage}")
     }
 
     override fun flush(offsets: Map<TopicPartition, OffsetAndMetadata>?) {
@@ -75,18 +72,18 @@ class SlackSinkTask @JvmOverloads constructor(
     }
 
     override fun close(partitions: Collection<TopicPartition>) {
-        log.debug("Closing the task for topic partitions: {}", partitions)
+        accepted.removeAll { TopicPartition(it.topic, it.partition) in partitions }
     }
 
     override fun stop() {
-        val client = session ?: return
-        session = null
-        try {
-            client.disconnect()
-        } catch (e: IOException) {
-            throw ConnectException("Unable to disconnect from Slack", e)
-        }
+        client = null
+        channelId = null
+        userId = null
+        directMessageId = null
+        accepted.clear()
     }
+
+    private data class Delivery(val topic: String, val partition: Int, val offset: Long, val channel: String)
 
     companion object {
         private val log = LoggerFactory.getLogger(SlackSinkTask::class.java)

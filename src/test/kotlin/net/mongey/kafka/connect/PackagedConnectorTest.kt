@@ -9,12 +9,17 @@ import java.util.jar.JarFile
 
 class PackagedConnectorTest {
     @Test
-    fun `distributed jar loads with only Kafka worker dependencies`() {
+    fun `distributed jar loads with only Kafka worker dependencies`(): Unit = SlackHttp().use { slack ->
         val plugin = File(System.getProperty("plugin.jar"))
         JarFile(plugin).use { jar ->
             assertFalse(jar.entries().asSequence().any { it.name.startsWith("org/apache/kafka/") })
             assertFalse(jar.entries().asSequence().any { it.name.startsWith("org/slf4j/") })
             assertNotNull(jar.getEntry("kotlin/Unit.class"))
+            for (prefix in listOf("com/ullink/", "org/glassfish/tyrus/", "javax/websocket/", "org/apache/http/", "com/google/gson/")) {
+                assertFalse("Legacy dependency remains in JAR: $prefix", jar.entries().asSequence().any { it.name.startsWith(prefix) })
+            }
+            assertNotNull(jar.getEntry("net/mongey/kafka/connect/SlackWebApi.class"))
+            assertNotNull(jar.getEntry("tools/jackson/databind/json/JsonMapper.class"))
         }
         val host = System.getProperty("kafka.classpath").split(File.pathSeparator).map(::File)
         val urls = (listOf(plugin) + host).map { it.toURI().toURL() }.toTypedArray()
@@ -33,7 +38,7 @@ class PackagedConnectorTest {
                 }
                 val props = mapOf(
                     "slack.token" to "test-token",
-                    "slack.channel" to "shipping",
+                    "slack.channel" to "orders",
                     "message.template" to "Hello \${name}"
                 )
                 connectorClass.getMethod("start", Map::class.java).invoke(connector, props)
@@ -52,11 +57,15 @@ class PackagedConnectorTest {
                 assertEquals("Hello Ada", helpers.getMethod("format", String::class.java, Map::class.java)
                     .invoke(null, props.getValue("message.template"), fields))
 
-                val provider = loader.loadClass("javax.websocket.ContainerProvider")
-                assertTrue(ServiceLoader.load(provider, loader).iterator().hasNext())
-                val factory = loader.loadClass("com.ullink.slack.simpleslackapi.impl.SlackSessionFactory")
-                assertNotNull(factory.getMethod("createWebSocketSlackSession", String::class.java)
-                    .invoke(null, "test-token"))
+                val apiClass = loader.loadClass("net.mongey.kafka.connect.SlackWebApi")
+                assertEquals(plugin.toURI().toURL(), apiClass.protectionDomain.codeSource.location)
+                val task = taskClass.getConstructor(java.net.URI::class.java).newInstance(slack.base)
+                taskClass.getMethod("start", Map::class.java).invoke(task, props)
+                taskClass.getMethod("put", Collection::class.java).invoke(task, listOf(record))
+                taskClass.getMethod("stop").invoke(task)
+                assertEquals(listOf("conversations.list", "chat.postMessage"), slack.requests.map { it.method })
+                assertEquals(mapOf("channel" to "CORDERS", "text" to "Hello Ada"), slack.requests.last().json())
+                assertEquals("Bearer test-token", slack.requests.last().authorization)
             } finally {
                 thread.contextClassLoader = previous
             }
